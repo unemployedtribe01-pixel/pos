@@ -12,6 +12,7 @@ export interface Product {
   stock_qty: number
   low_stock_threshold: number
   aliases: string
+  price_inclusive: boolean
   is_active: boolean
   created_at: string
   updated_at: string
@@ -58,6 +59,13 @@ export interface BillLine {
   gst_rate: number
   taxable_value: number
   gst_amount: number
+  cgst_rate: number
+  sgst_rate: number
+  igst_rate: number
+  cgst_amount: number
+  sgst_amount: number
+  igst_amount: number
+  supply_type: 'intra' | 'inter'
   line_total: number
 }
 
@@ -76,10 +84,17 @@ export interface Bill {
   lines: BillLine[]
   subtotal: number
   gst_amount: number
+  cgst_amount: number
+  sgst_amount: number
+  igst_amount: number
+  supply_type: 'intra' | 'inter'
+  place_of_supply_code: string
+  place_of_supply_name: string
   rounding: number
   total: number
   payments: PaymentSplit[]
   credit_amount: number
+  change_due: number
   status: BillStatus
   notes: string
   created_at: string
@@ -127,6 +142,8 @@ export interface CartItem {
   qty: number
   unit_price: number
   discount_per_unit: number
+  line_discount_pct: number
+  entered_price_inclusive: number | null
   _manualOverride?: boolean
 }
 
@@ -135,5 +152,6 @@ export interface BillDraft {
   customer: Customer | null
   payments: PaymentSplit[]
   rounding: number
+  bill_discount_pct: number
   notes: string
 }

@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS products (
   gst_rate REAL NOT NULL, mrp REAL NOT NULL, cost_price REAL NOT NULL,
   unit TEXT NOT NULL, stock_qty REAL NOT NULL DEFAULT 0,
   low_stock_threshold REAL NOT NULL DEFAULT 5, aliases TEXT NOT NULL DEFAULT '',
+  price_inclusive INTEGER NOT NULL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 
@@ -32,6 +33,13 @@ CREATE TABLE IF NOT EXISTS bills (
   lines TEXT NOT NULL, subtotal REAL NOT NULL, gst_amount REAL NOT NULL,
   rounding REAL NOT NULL DEFAULT 0, total REAL NOT NULL,
   payments TEXT NOT NULL, credit_amount REAL NOT NULL DEFAULT 0,
+  change_due REAL NOT NULL DEFAULT 0,
+  supply_type TEXT NOT NULL DEFAULT 'intra',
+  cgst_amount REAL NOT NULL DEFAULT 0,
+  sgst_amount REAL NOT NULL DEFAULT 0,
+  igst_amount REAL NOT NULL DEFAULT 0,
+  place_of_supply_code TEXT NOT NULL DEFAULT '',
+  place_of_supply_name TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'draft', notes TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
@@ -74,4 +82,22 @@ INSERT OR IGNORE INTO app_meta VALUES ('invoice_counter', '1');
 INSERT OR IGNORE INTO app_meta VALUES ('credit_note_counter', '1');
 INSERT OR IGNORE INTO app_meta VALUES ('device_id', 'D1');
 INSERT OR IGNORE INTO app_meta VALUES ('db_version', '1');
+
+CREATE TABLE IF NOT EXISTS store_config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO store_config VALUES ('shop_name', 'Shri Hardware Store');
+INSERT OR IGNORE INTO store_config VALUES ('shop_trade_name', '');
+INSERT OR IGNORE INTO store_config VALUES ('shop_address_line1', 'Main Road');
+INSERT OR IGNORE INTO store_config VALUES ('shop_address_line2', '');
+INSERT OR IGNORE INTO store_config VALUES ('shop_city', 'Your City');
+INSERT OR IGNORE INTO store_config VALUES ('shop_state', 'Karnataka');
+INSERT OR IGNORE INTO store_config VALUES ('shop_state_code', '29');
+INSERT OR IGNORE INTO store_config VALUES ('shop_pincode', '000000');
+INSERT OR IGNORE INTO store_config VALUES ('shop_gstin', '29XXXXX0000X1ZX');
+INSERT OR IGNORE INTO store_config VALUES ('shop_phone', '9800000000');
+INSERT OR IGNORE INTO store_config VALUES ('invoice_prefix', 'INV');
+INSERT OR IGNORE INTO store_config VALUES ('is_gstin_registered', 'true');
 `

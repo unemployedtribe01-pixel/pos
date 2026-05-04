@@ -6,8 +6,8 @@ function rowToProduct(row: any[]): Product {
     id: row[0], name: row[1], category: row[2], brand: row[3], variant: row[4],
     hsn_code: row[5], gst_rate: row[6], mrp: row[7], cost_price: row[8],
     unit: row[9], stock_qty: row[10], low_stock_threshold: row[11],
-    aliases: row[12], is_active: Boolean(row[13]),
-    created_at: row[14], updated_at: row[15],
+    aliases: row[12], price_inclusive: Boolean(row[13]), is_active: Boolean(row[14]),
+    created_at: row[15], updated_at: row[16],
   }
 }
 
@@ -40,6 +40,13 @@ export function getProductById(id: string): Product | null {
 }
 
 export function upsertProduct(p: Omit<Product, 'created_at' | 'updated_at'>): Product {
+  const VALID_GST_RATES = [0, 5, 12, 18, 28]
+  if (!VALID_GST_RATES.includes(p.gst_rate)) {
+    throw new Error(`Invalid GST rate ${p.gst_rate}. Must be one of: 0, 5, 12, 18, 28`)
+  }
+  if (!p.hsn_code.trim()) {
+    throw new Error('HSN code is required for all products')
+  }
   const db = getDB()
   const existing = getProductById(p.id || '')
   const timestamp = now()
@@ -48,16 +55,16 @@ export function upsertProduct(p: Omit<Product, 'created_at' | 'updated_at'>): Pr
   if (existing) {
     db.run(
       `UPDATE products SET name=?,category=?,brand=?,variant=?,hsn_code=?,gst_rate=?,mrp=?,
-       cost_price=?,unit=?,stock_qty=?,low_stock_threshold=?,aliases=?,is_active=?,updated_at=? WHERE id=?`,
+       cost_price=?,unit=?,stock_qty=?,low_stock_threshold=?,aliases=?,price_inclusive=?,is_active=?,updated_at=? WHERE id=?`,
       [p.name,p.category,p.brand,p.variant,p.hsn_code,p.gst_rate,p.mrp,p.cost_price,
-       p.unit,p.stock_qty,p.low_stock_threshold,p.aliases,p.is_active?1:0,timestamp,p.id]
+       p.unit,p.stock_qty,p.low_stock_threshold,p.aliases,p.price_inclusive?1:0,p.is_active?1:0,timestamp,p.id]
     )
   } else {
     id = p.id || generateId()
     db.run(
-      `INSERT INTO products VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO products VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [id,p.name,p.category,p.brand,p.variant,p.hsn_code,p.gst_rate,p.mrp,p.cost_price,
-       p.unit,p.stock_qty,p.low_stock_threshold,p.aliases,p.is_active?1:0,timestamp,timestamp]
+       p.unit,p.stock_qty,p.low_stock_threshold,p.aliases,p.price_inclusive?1:0,p.is_active?1:0,timestamp,timestamp]
     )
   }
   const payload = {
@@ -74,6 +81,7 @@ export function upsertProduct(p: Omit<Product, 'created_at' | 'updated_at'>): Pr
     stock_qty: p.stock_qty,
     low_stock_threshold: p.low_stock_threshold,
     aliases: p.aliases,
+    price_inclusive: p.price_inclusive,
     is_active: p.is_active,
     created_at: existing?.created_at || timestamp,
     updated_at: timestamp,

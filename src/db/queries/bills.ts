@@ -1,18 +1,23 @@
 import { getDB, generateId, now, persistDB } from '../index'
 import { BillDraft, Bill, BillLine } from '../../types'
-import { computeCartTotals, getNextInvoiceNo } from '../../utils/billing'
+import { computeCartTotals, determineSupplyType, getNextInvoiceNo, splitGst } from '../../utils/billing'
+import { getStoreConfig } from './storeConfig'
 import { updateStock } from './products'
 
-function buildBillLines(draft: BillDraft, billId: string): BillLine[] {
+function buildBillLines(draft: BillDraft, billId: string, supply_type: 'intra' | 'inter'): BillLine[] {
   return draft.cart.map(item => {
-    const taxable = item.qty * (item.unit_price - item.discount_per_unit)
-    const gstAmt = taxable * (item.product.gst_rate / 100)
+    const taxable = Math.round(item.qty * (item.unit_price - item.discount_per_unit) * 100) / 100
+    const gstAmt = Math.round(taxable * (item.product.gst_rate / 100) * 100) / 100
+    const split = splitGst(item.product.gst_rate, gstAmt, supply_type)
     return {
       id: generateId(), bill_id: billId, product_id: item.product.id,
       product_snapshot: { name:item.product.name, brand:item.product.brand, variant:item.product.variant, hsn_code:item.product.hsn_code, unit:item.product.unit },
       qty: item.qty, unit_price: item.unit_price, mrp_at_time: item.product.mrp,
       discount_per_unit: item.discount_per_unit, gst_rate: item.product.gst_rate,
-      taxable_value: taxable, gst_amount: gstAmt, line_total: taxable + gstAmt,
+      taxable_value: taxable, gst_amount: gstAmt,
+      cgst_rate: split.cgst_rate, sgst_rate: split.sgst_rate, igst_rate: split.igst_rate,
+      cgst_amount: split.cgst_amount, sgst_amount: split.sgst_amount, igst_amount: split.igst_amount,
+      line_total: taxable + gstAmt, supply_type,
     }
   })
 }
@@ -20,10 +25,12 @@ function buildBillLines(draft: BillDraft, billId: string): BillLine[] {
 export function confirmBill(draft: BillDraft): string {
   if (draft.cart.length === 0) throw new Error('Cart is empty')
   const db = getDB()
-  const totals = computeCartTotals(draft.cart, draft.payments, draft.rounding)
+  const config = getStoreConfig()
+  const bill_totals = computeCartTotals(draft.cart, draft.payments, draft.rounding, draft.customer?.gstin, draft.bill_discount_pct || 0)
+  const supply_type = determineSupplyType(draft.customer?.gstin)
   const billId = generateId()
   const invoiceNo = getNextInvoiceNo()
-  const lines = buildBillLines(draft, billId)
+  const lines = buildBillLines(draft, billId, supply_type)
   const creditAmount = draft.payments.filter(p => p.mode==='credit').reduce((s,p)=>s+p.amount, 0)
   const timestamp = now()
   const dateStr = timestamp.split('T')[0]
@@ -31,12 +38,16 @@ export function confirmBill(draft: BillDraft): string {
     ? { name:draft.customer.name, phone:draft.customer.phone, gstin:draft.customer.gstin, address:draft.customer.address }
     : null
 
-  db.run(`INSERT INTO bills VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+  db.run(`INSERT INTO bills VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
     billId, invoiceNo, draft.customer?.id || null,
     customerSnapshot ? JSON.stringify(customerSnapshot) : null,
     dateStr, JSON.stringify(lines),
-    totals.subtotal, totals.gst_amount, draft.rounding, totals.total,
-    JSON.stringify(draft.payments), creditAmount, 'confirmed', draft.notes, timestamp,
+    bill_totals.subtotal, bill_totals.gst_amount, draft.rounding, bill_totals.total,
+    JSON.stringify(draft.payments), creditAmount,
+    bill_totals.change_due || 0,
+    bill_totals.supply_type, bill_totals.cgst_amount, bill_totals.sgst_amount, bill_totals.igst_amount,
+    config.shop_state_code, config.shop_state,
+    'confirmed', draft.notes, timestamp,
   ])
 
   for (const item of draft.cart) updateStock(item.product.id, -item.qty)
@@ -59,12 +70,19 @@ export function confirmBill(draft: BillDraft): string {
       customer_snapshot: customerSnapshot,
       date: dateStr,
       lines,
-      subtotal: totals.subtotal,
-      gst_amount: totals.gst_amount,
+      subtotal: bill_totals.subtotal,
+      gst_amount: bill_totals.gst_amount,
       rounding: draft.rounding,
-      total: totals.total,
+      total: bill_totals.total,
       payments: draft.payments,
       credit_amount: creditAmount,
+      change_due: bill_totals.change_due || 0,
+      supply_type: bill_totals.supply_type,
+      cgst_amount: bill_totals.cgst_amount,
+      sgst_amount: bill_totals.sgst_amount,
+      igst_amount: bill_totals.igst_amount,
+      place_of_supply_code: config.shop_state_code,
+      place_of_supply_name: config.shop_state,
       status: 'confirmed',
       notes: draft.notes,
       created_at: timestamp,
@@ -87,7 +105,11 @@ export function getBillById(id: string): Bill | null {
     date:r[4] as string, lines:JSON.parse(r[5] as string),
     subtotal:r[6] as number, gst_amount:r[7] as number, rounding:r[8] as number, total:r[9] as number,
     payments:JSON.parse(r[10] as string), credit_amount:r[11] as number,
-    status:r[12] as any, notes:r[13] as string, created_at:r[14] as string,
+    change_due:r[12] as number,
+    supply_type: (r[13] as 'intra' | 'inter') || 'intra',
+    cgst_amount:r[14] as number, sgst_amount:r[15] as number, igst_amount:r[16] as number,
+    place_of_supply_code:r[17] as string, place_of_supply_name:r[18] as string,
+    status:r[19] as any, notes:r[20] as string, created_at:r[21] as string,
   }
 }
 
@@ -100,7 +122,10 @@ export function getRecentBills(limit = 50): Bill[] {
     customer_snapshot:r[3]?JSON.parse(r[3] as string):null, date:r[4] as string,
     lines:JSON.parse(r[5] as string), subtotal:r[6] as number, gst_amount:r[7] as number,
     rounding:r[8] as number, total:r[9] as number, payments:JSON.parse(r[10] as string),
-    credit_amount:r[11] as number, status:r[12] as any, notes:r[13] as string, created_at:r[14] as string,
+    credit_amount:r[11] as number, change_due:r[12] as number, supply_type:(r[13] as 'intra' | 'inter') || 'intra',
+    cgst_amount:r[14] as number, sgst_amount:r[15] as number, igst_amount:r[16] as number,
+    place_of_supply_code:r[17] as string, place_of_supply_name:r[18] as string,
+    status:r[19] as any, notes:r[20] as string, created_at:r[21] as string,
   }))
 }
 

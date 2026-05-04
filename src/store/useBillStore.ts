@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { CartItem, BillDraft, Customer, PaymentSplit, Product } from '../types'
 import { getSpecialPrice } from '../db/queries/rateCards'
+import { toExclusivePrice } from '../utils/billing'
 
 interface BillStore {
   draft: BillDraft
@@ -9,7 +10,9 @@ interface BillStore {
   removeFromCart: (productId: string) => void
   updateCartQty: (productId: string, qty: number) => void
   updateCartPrice: (productId: string, price: number) => void
+  updateLineDiscountPct: (productId: string, pct: number) => void
   setCustomer: (customer: Customer | null) => void
+  setBillDiscountPct: (pct: number) => void
   recalculateCartPrices: () => void
   addPayment: (payment: PaymentSplit) => void
   removePayment: (index: number) => void
@@ -21,7 +24,7 @@ interface BillStore {
   deleteHeldBill: (index: number) => void
 }
 
-const EMPTY_DRAFT: BillDraft = { cart:[], customer:null, payments:[], rounding:0, notes:'' }
+const EMPTY_DRAFT: BillDraft = { cart:[], customer:null, payments:[], rounding:0, bill_discount_pct:0, notes:'' }
 
 export const useBillStore = create<BillStore>((set) => ({
   draft: { ...EMPTY_DRAFT },
@@ -35,17 +38,25 @@ export const useBillStore = create<BillStore>((set) => ({
       )}}
     }
     const customer = state.draft.customer
-    const specialPrice = getSpecialPrice(
+    const rawPrice = getSpecialPrice(
       product.id,
       customer?.id || null,
       customer?.type || null,
       qty
-    )
+    ) ?? product.mrp
+
+    const unit_price = product.price_inclusive
+      ? toExclusivePrice(rawPrice, product.gst_rate)
+      : rawPrice
+
     const newItem: CartItem = {
       product,
       qty,
-      unit_price: specialPrice !== null ? specialPrice : product.mrp,
+      unit_price,
       discount_per_unit: 0,
+      line_discount_pct: 0,
+      entered_price_inclusive: product.price_inclusive ? rawPrice : null,
+      _manualOverride: false,
     }
     return { draft: { ...state.draft, cart: [...state.draft.cart, newItem] }}
   }),
@@ -65,8 +76,18 @@ export const useBillStore = create<BillStore>((set) => ({
       i.product.id === productId ? { ...i, unit_price: Math.max(0, price), _manualOverride: true } : i
     )}
   })),
+  updateLineDiscountPct: (productId, pct) => set(state => ({
+    draft: { ...state.draft, cart: state.draft.cart.map(i =>
+      i.product.id === productId
+        ? { ...i, line_discount_pct: Math.min(100, Math.max(0, pct)) }
+        : i
+    )}
+  })),
 
   setCustomer: (customer) => set(state => ({ draft: { ...state.draft, customer } })),
+  setBillDiscountPct: (pct) => set(state => ({
+    draft: { ...state.draft, bill_discount_pct: Math.min(100, Math.max(0, pct)) }
+  })),
   recalculateCartPrices: () => set(state => {
     const customer = state.draft.customer
     const updatedCart = state.draft.cart.map(item => {
@@ -79,7 +100,15 @@ export const useBillStore = create<BillStore>((set) => ({
         customer?.type || null,
         item.qty
       )
-      return { ...item, unit_price: specialPrice !== null ? specialPrice : item.product.mrp }
+      const rawPrice = specialPrice !== null ? specialPrice : item.product.mrp
+      const unit_price = item.product.price_inclusive
+        ? toExclusivePrice(rawPrice, item.product.gst_rate)
+        : rawPrice
+      return {
+        ...item,
+        unit_price,
+        entered_price_inclusive: item.product.price_inclusive ? rawPrice : null,
+      }
     })
     return { draft: { ...state.draft, cart: updatedCart } }
   }),

@@ -1,6 +1,7 @@
 import { getDB, generateId, now, persistDB } from '../index'
 import { getBillById } from './bills'
 import { updateStock } from './products'
+import { getNextCreditNoteNo } from '../../utils/billing'
 
 export interface ReturnLine {
   product_id: string
@@ -21,16 +22,6 @@ export interface CreditNote {
   total_credit: number
   notes: string
   created_at: string
-}
-
-function getNextCreditNoteNo(): string {
-  const db = getDB()
-  const result = db.exec("SELECT value FROM app_meta WHERE key='credit_note_counter'")
-  const counter = parseInt(result[0].values[0][0] as string)
-  const year = new Date().getFullYear().toString().slice(2)
-  const no = `CN-${year}-${String(counter).padStart(5, '0')}`
-  db.run("UPDATE app_meta SET value=? WHERE key='credit_note_counter'", [counter + 1])
-  return no
 }
 
 export function getAlreadyReturnedQty(billId: string, productId: string): number {

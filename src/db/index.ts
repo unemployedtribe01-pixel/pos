@@ -50,6 +50,19 @@ export async function initDB(): Promise<any> {
   const saved = await get<Uint8Array>('pos_db')
   db = saved ? new SQL.Database(saved) : new SQL.Database()
   db.run(SCHEMA_SQL)
+  const migrations = [
+    "ALTER TABLE products ADD COLUMN price_inclusive INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE bills ADD COLUMN change_due REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE bills ADD COLUMN supply_type TEXT NOT NULL DEFAULT 'intra'",
+    "ALTER TABLE bills ADD COLUMN cgst_amount REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE bills ADD COLUMN sgst_amount REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE bills ADD COLUMN igst_amount REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE bills ADD COLUMN place_of_supply_code TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE bills ADD COLUMN place_of_supply_name TEXT NOT NULL DEFAULT ''",
+  ]
+  for (const m of migrations) {
+    try { db.run(m) } catch { /* column already exists */ }
+  }
   await persistDB()
   return db
 }

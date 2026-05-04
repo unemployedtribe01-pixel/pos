@@ -7,6 +7,7 @@ import ReturnModal from '../components/returns/ReturnModal'
 import { CreditNote } from '../db/queries/returns'
 import { useReactToPrint } from 'react-to-print'
 import BillReceipt from '../components/sell/BillReceipt'
+import { getStoreConfig, updateStoreConfig, StoreConfig } from '../db/queries/storeConfig'
 
 export default function ReportsPage() {
   const today = new Date().toISOString().split('T')[0]
@@ -20,7 +21,23 @@ export default function ReportsPage() {
   const printRef = useRef<HTMLDivElement>(null)
   const handlePrint = useReactToPrint({ content: () => printRef.current } as any)
   const [dateFilter, setDateFilter] = useState<'today'|'yesterday'|'week'|'all'>('all')
+  const [config, setConfig] = useState<StoreConfig>(getStoreConfig())
+  const [configDirty, setConfigDirty] = useState(false)
+  const [configSaved, setConfigSaved] = useState(false)
   const health = checkDBHealth()
+
+  function updateField(key: keyof StoreConfig, value: string) {
+    setConfig(c => ({ ...c, [key]: value }))
+    setConfigDirty(true)
+  }
+
+  function saveConfig() {
+    updateStoreConfig(config)
+    setConfigDirty(false)
+    setConfigSaved(true)
+    setTimeout(() => setConfigSaved(false), 2000)
+  }
+
   useEffect(() => {
     const refresh = () => {
       setTotals(getDailyTotals(today))
@@ -35,6 +52,46 @@ export default function ReportsPage() {
   return (
     <div className="p-6 max-w-2xl">
       <h1 className="text-2xl font-bold text-white mb-6">Reports & Settings</h1>
+      <div className="bg-slate-800 rounded-xl p-5 mb-5">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-base font-semibold text-white">Store Settings</h2>
+          {configSaved && <span className="text-xs text-green-400">✅ Saved</span>}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {([
+            { key:'shop_name', label:'Shop Name *' },
+            { key:'shop_gstin', label:'GSTIN *' },
+            { key:'shop_phone', label:'Phone *' },
+            { key:'shop_state_code', label:'State Code (2-digit) *' },
+            { key:'shop_state', label:'State Name' },
+            { key:'invoice_prefix', label:'Invoice Prefix (e.g. INV)' },
+            { key:'shop_address_line1', label:'Address Line 1' },
+            { key:'shop_city', label:'City' },
+            { key:'shop_pincode', label:'PIN Code' },
+          ] as { key: keyof StoreConfig; label: string }[]).map(({ key, label }) => (
+            <div key={key} className="flex flex-col gap-1">
+              <label className="text-xs text-slate-400 font-medium">{label}</label>
+              <input
+                value={config[key] as string}
+                onChange={e => updateField(key, e.target.value)}
+                className="bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-brand-500"
+              />
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex gap-3 items-center">
+          <button
+            onClick={saveConfig}
+            disabled={!configDirty}
+            className="px-4 py-2 bg-brand-700 hover:bg-brand-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded text-sm font-semibold"
+          >
+            Save Settings
+          </button>
+          <div className="text-xs text-slate-500">
+            State code determines CGST/SGST vs IGST on all invoices
+          </div>
+        </div>
+      </div>
       <div className="bg-slate-800 rounded-xl p-5 mb-5">
         <h2 className="text-base font-semibold text-white mb-3">Today — {today}</h2>
         <div className="grid grid-cols-3 gap-3">

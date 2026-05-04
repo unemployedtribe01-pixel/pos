@@ -90,11 +90,15 @@ export async function bootstrapFromSupabaseIfLocalEmpty(): Promise<void> {
 
     for (const b of billsRes.data || []) {
       db.run(
-        `INSERT OR REPLACE INTO bills VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT OR REPLACE INTO bills VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           b.id, b.invoice_no, b.customer_id || null, asText(b.customer_snapshot), b.date,
           asText(b.lines), asNum(b.subtotal), asNum(b.gst_amount), asNum(b.rounding), asNum(b.total),
-          asText(b.payments), asNum(b.credit_amount), b.status || 'confirmed', b.notes || '', b.created_at,
+          asText(b.payments), asNum(b.credit_amount),
+          asNum(b.change_due),
+          b.supply_type || 'intra', asNum(b.cgst_amount), asNum(b.sgst_amount), asNum(b.igst_amount),
+          b.place_of_supply_code || '', b.place_of_supply_name || '',
+          b.status || 'confirmed', b.notes || '', b.created_at,
         ]
       )
     }

@@ -248,3 +248,104 @@ test('ramesh contractor whatsapp return and print flow', async ({ page }) => {
   const reprintRow = page.locator('div.bg-slate-900.rounded', { hasText: customerName }).first()
   await reprintRow.getByRole('button', { name: /print/i }).click()
 })
+
+test('g1-g8 gst and reconciliation regression checks', async ({ page }) => {
+  test.setTimeout(180_000)
+  const suffix = randomSuffix()
+  const name = `GST-Cust-${suffix}`
+  const phone = `9${String(suffix).slice(-9)}`
+
+  // G1: Store settings save + reload persist.
+  await page.goto('/reports')
+  await expect(page.getByText('Store Settings')).toBeVisible()
+  const gstinInput = page.locator('input').nth(1)
+  const gstinValue = `29ABCDE1234F1Z${String(suffix).slice(-1)}`
+  await gstinInput.fill(gstinValue)
+  await page.getByRole('button', { name: 'Save Settings' }).click()
+  await page.reload()
+  await expect(page.locator('input').nth(1)).toHaveValue(gstinValue)
+
+  // G2/G3/G4/G5 core math checks using shared engine.
+  const engine = await page.evaluate(async () => {
+    const { computeCartTotals, toExclusivePrice, getCurrentFY, getNextInvoiceNo } = await import('/src/utils/billing.ts')
+    const { updateStoreConfig } = await import('/src/db/queries/storeConfig.ts')
+    const { getDB } = await import('/src/db/index.ts')
+    const db = getDB()
+
+    updateStoreConfig({ invoice_prefix: 'INV', shop_state_code: '29', shop_state: 'Karnataka' })
+    db.run(`DELETE FROM app_meta WHERE key LIKE 'invoice_counter_%'`)
+
+    const realDate = Date
+    class MockDateMarch extends Date {
+      constructor(...args: any[]) {
+        if (args.length === 0) super('2026-03-31T10:00:00.000Z')
+        else super(...args)
+      }
+      static now() { return new realDate('2026-03-31T10:00:00.000Z').getTime() }
+    }
+    // @ts-ignore
+    window.Date = MockDateMarch
+    const inv1 = getNextInvoiceNo()
+
+    class MockDateApril extends Date {
+      constructor(...args: any[]) {
+        if (args.length === 0) super('2026-04-01T10:00:00.000Z')
+        else super(...args)
+      }
+      static now() { return new realDate('2026-04-01T10:00:00.000Z').getTime() }
+    }
+    // @ts-ignore
+    window.Date = MockDateApril
+    const inv2 = getNextInvoiceNo()
+    // @ts-ignore
+    window.Date = realDate
+
+    const inclusiveEx = toExclusivePrice(1416, 18)
+    const localTotals = computeCartTotals(
+      [{ product: { gst_rate: 18 } as any, qty: 1, unit_price: 1200, discount_per_unit: 0, line_discount_pct: 0, entered_price_inclusive: 1416 }],
+      [],
+      0,
+      '',
+      0
+    )
+    const interTotals = computeCartTotals(
+      [{ product: { gst_rate: 18 } as any, qty: 2, unit_price: 1000, discount_per_unit: 0, line_discount_pct: 0, entered_price_inclusive: null }],
+      [],
+      0,
+      '27ABCDE1234F1Z5',
+      0
+    )
+    const discTotals = computeCartTotals(
+      [
+        { product: { gst_rate: 18 } as any, qty: 1, unit_price: 1000, discount_per_unit: 0, line_discount_pct: 0, entered_price_inclusive: null },
+        { product: { gst_rate: 18 } as any, qty: 1, unit_price: 1000, discount_per_unit: 0, line_discount_pct: 0, entered_price_inclusive: null },
+      ],
+      [],
+      0,
+      '',
+      5
+    )
+    return { inv1, inv2, inclusiveEx, localTotals, interTotals, discTotals, fy: getCurrentFY() }
+  })
+
+  expect(engine.inv1).toBe('INV-2526-00001')
+  expect(engine.inv2).toBe('INV-2627-00001')
+  expect(engine.inclusiveEx).toBe(1200)
+  expect(engine.localTotals.cgst_amount).toBeCloseTo(engine.localTotals.gst_amount / 2, 2)
+  expect(engine.localTotals.sgst_amount).toBeCloseTo(engine.localTotals.gst_amount / 2, 2)
+  expect(engine.interTotals.igst_amount).toBeGreaterThan(0)
+  expect(engine.discTotals.bill_discount_amount).toBeGreaterThan(0)
+
+  // G8: Product validation and cement suggestion.
+  await page.goto('/products')
+  const form = page.locator('div.flex-1.p-5.overflow-y-auto')
+  await form.locator('input').nth(0).fill(`Cement-${suffix}`)
+  await form.locator('input').nth(1).fill('BrandC')
+  await form.locator('input').nth(2).fill('PPC')
+  await form.locator('input').nth(3).fill('9999')
+  await form.locator('input').nth(4).fill('18')
+  await form.locator('input').nth(5).fill('400')
+  page.once('dialog', d => d.dismiss())
+  await page.getByRole('button', { name: 'Save Product' }).click()
+  await expect(page.getByRole('button', { name: /2523 \(18%\)/ })).toBeVisible()
+})

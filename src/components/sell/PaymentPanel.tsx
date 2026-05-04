@@ -15,8 +15,8 @@ const PAYMENT_MODES: { mode: PaymentMode; label: string }[] = [
 
 export default function PaymentPanel() {
   const { draft, setCustomer, addPayment, removePayment, clearBill, recalculateCartPrices } = useBillStore()
-  const { cart, customer, payments, rounding } = draft
-  const totals = computeCartTotals(cart, payments, rounding)
+  const { cart, customer, payments, rounding, bill_discount_pct } = draft
+  const totals = computeCartTotals(cart, payments, rounding, customer?.gstin, bill_discount_pct)
   const [custQuery, setCustQuery] = useState('')
   const [custResults, setCustResults] = useState<Customer[]>([])
   const [showCustSearch, setShowCustSearch] = useState(false)
@@ -117,13 +117,47 @@ export default function PaymentPanel() {
 
   function handleConfirm() {
     if (cart.length === 0) { alert('Cart is empty'); return }
+    const custBalance = creditStatus?.balance || 0
+
+    // Prevent confirming if balance > 0 and no credit mode payment added
     if (totals.balance > 0.5) {
-      if (!customer) { alert('Select a customer to add the remaining ₹' + totals.balance.toFixed(2) + ' to udhaar'); return }
-      const proceed = confirm(`₹${totals.balance.toFixed(2)} unpaid. Add to udhaar for ${customer.name}?`)
+      if (!draft.customer) {
+        alert(`₹${totals.balance.toFixed(2)} unpaid. Select a customer to add to udhaar, or add more payment.`)
+        return
+      }
+      const proceed = confirm(`₹${totals.balance.toFixed(2)} will be added to udhaar for ${draft.customer.name} (current balance: ₹${custBalance.toFixed(0)}). Proceed?`)
       if (!proceed) return
+      // Auto-add the balance as credit payment
       addPayment({ mode: 'credit', amount: totals.balance, ref_no: '' })
+      // Let Zustand update, then re-run confirm on next tick
+      setTimeout(() => {
+        const nextDraft = useBillStore.getState().draft
+        const nextTotals = computeCartTotals(
+          nextDraft.cart,
+          nextDraft.payments,
+          nextDraft.rounding,
+          nextDraft.customer?.gstin,
+          nextDraft.bill_discount_pct
+        )
+        if (nextTotals.balance <= 0.5) {
+          try {
+            const billId = confirmBill(nextDraft)
+            setConfirmedBill(getBillById(billId))
+            setBillConfirmed(true)
+          } catch (err: any) { alert('Error: ' + err.message) }
+        }
+      }, 50)
       return
     }
+
+    // Validate UPI ref numbers
+    const upiPayments = draft.payments.filter(p => p.mode === 'upi')
+    const missingRef = upiPayments.filter(p => !p.ref_no.trim())
+    if (missingRef.length > 0) {
+      const proceed = confirm(`${missingRef.length} UPI payment(s) have no reference number. Add ref numbers for reconciliation, or proceed anyway?`)
+      if (!proceed) return
+    }
+
     const billId = confirmBill(draft)
     setConfirmedBill(getBillById(billId))
     setBillConfirmed(true)
@@ -257,8 +291,18 @@ export default function PaymentPanel() {
       <div className="p-3 border-t border-slate-700 space-y-1.5">
         <div className="flex justify-between text-sm text-slate-400"><span>Total</span><span className="text-white font-bold">₹{totals.total.toFixed(2)}</span></div>
         <div className="flex justify-between text-sm"><span className="text-slate-400">Paid</span><span className="text-green-400">₹{totals.amountPaid.toFixed(2)}</span></div>
-        {totals.balance > 0.01 && <div className="flex justify-between text-sm"><span className="text-red-400">Balance</span><span className="text-red-400 font-bold">₹{totals.balance.toFixed(2)}</span></div>}
-        {totals.balance < -0.01 && <div className="flex justify-between text-sm"><span className="text-warn">Change</span><span className="text-warn font-bold">₹{Math.abs(totals.balance).toFixed(2)}</span></div>}
+        {totals.balance > 0.01 && (
+          <div className="flex justify-between text-sm">
+            <span className="text-red-400">Balance Due</span>
+            <span className="text-red-400 font-bold">₹{totals.balance.toFixed(2)}</span>
+          </div>
+        )}
+        {totals.change_due > 0.01 && (
+          <div className="flex justify-between text-sm">
+            <span className="text-warn">Change to Return</span>
+            <span className="text-warn font-bold">₹{totals.change_due.toFixed(2)}</span>
+          </div>
+        )}
         <button onClick={handleConfirm} disabled={cart.length===0}
           className="w-full py-3 bg-brand-700 hover:bg-brand-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold text-base rounded-lg transition-colors mt-1">
           CONFIRM BILL ⏎

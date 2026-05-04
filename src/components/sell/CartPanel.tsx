@@ -3,9 +3,9 @@ import { useBillStore } from '../../store/useBillStore'
 import { computeCartTotals } from '../../utils/billing'
 
 export default function CartPanel() {
-  const { draft, removeFromCart, updateCartQty, updateCartPrice, setRounding } = useBillStore()
-  const { cart, payments, rounding } = draft
-  const totals = computeCartTotals(cart, payments, rounding)
+  const { draft, removeFromCart, updateCartQty, updateCartPrice, updateLineDiscountPct, setBillDiscountPct, setRounding } = useBillStore()
+  const { cart, customer, payments, rounding, bill_discount_pct } = draft
+  const totals = computeCartTotals(cart, payments, rounding, customer?.gstin, bill_discount_pct)
   const [editingPrice, setEditingPrice] = useState<string | null>(null)
 
   function handleQtyKey(e: KeyboardEvent<HTMLInputElement>, productId: string) {
@@ -31,9 +31,9 @@ export default function CartPanel() {
         <span className="text-sm font-semibold text-white">Bill Items ({cart.length})</span>
         <span className="text-xs text-slate-500">Click rate to override · Del removes line</span>
       </div>
-      <div className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 px-4 py-1.5 text-xs text-slate-500 border-b border-slate-800">
+      <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 px-4 py-1.5 text-xs text-slate-500 border-b border-slate-800">
         <span>Product</span><span className="text-right">MRP</span>
-        <span className="text-right">Rate</span><span className="text-right">Qty</span>
+        <span className="text-right">Rate</span><span className="text-right">Disc%</span><span className="text-right">Qty</span>
         <span className="text-right">Total</span>
       </div>
 
@@ -43,10 +43,15 @@ export default function CartPanel() {
           const isPriceOverridden = item.unit_price !== item.product.mrp
           return (
             <div key={item.product.id}
-              className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 px-4 py-2 border-b border-slate-800/60 items-center hover:bg-slate-800/40 group">
+              className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-2 px-4 py-2 border-b border-slate-800/60 items-center hover:bg-slate-800/40 group">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-white truncate">{item.product.brand} {item.product.name}</div>
                 <div className="text-xs text-slate-500 truncate">{item.product.variant} · {item.product.unit}</div>
+                {item.entered_price_inclusive != null && (
+                  <div className="text-[10px] text-slate-500">
+                    Incl. GST: ₹{item.entered_price_inclusive} → Taxable: ₹{item.unit_price}
+                  </div>
+                )}
                 <div className="text-xs text-slate-600">HSN {item.product.hsn_code} · GST {item.product.gst_rate}%</div>
               </div>
               <div className="text-right text-sm text-slate-400">₹{item.product.mrp}</div>
@@ -74,6 +79,17 @@ export default function CartPanel() {
                 )}
               </div>
               <div className="text-right">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={item.line_discount_pct || 0}
+                  onChange={e => updateLineDiscountPct(item.product.id, parseFloat(e.target.value)||0)}
+                  className="w-14 bg-slate-700 border border-slate-600 rounded px-1 py-0.5 text-sm text-white text-right focus:outline-none focus:border-brand-500"
+                  placeholder="0"
+                />
+              </div>
+              <div className="text-right">
                 <input type="number" value={item.qty} min="0.1" step="1"
                   onChange={e => updateCartQty(item.product.id, parseFloat(e.target.value)||1)}
                   onKeyDown={e => handleQtyKey(e, item.product.id)}
@@ -92,6 +108,26 @@ export default function CartPanel() {
       <div className="border-t border-slate-700 px-4 py-3 bg-slate-950 space-y-1">
         <div className="flex justify-between text-sm text-slate-400">
           <span>Subtotal (taxable)</span><span>₹{totals.subtotal.toFixed(2)}</span>
+        </div>
+        {totals.bill_discount_amount > 0 && (
+          <div className="flex justify-between text-sm text-warn">
+            <span>Bill Discount ({bill_discount_pct}%)</span>
+            <span>-₹{totals.bill_discount_amount.toFixed(2)}</span>
+          </div>
+        )}
+        <div className="flex justify-between text-sm text-slate-400">
+          <span className="flex items-center gap-2">
+            Bill Discount %
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={bill_discount_pct}
+              onChange={e => setBillDiscountPct(parseFloat(e.target.value)||0)}
+              className="w-14 bg-slate-700 border border-slate-600 rounded px-1 py-0.5 text-xs text-white focus:outline-none"
+            />
+          </span>
+          <span className="text-slate-500">applied pre-tax</span>
         </div>
         <div className="flex justify-between text-sm text-slate-400">
           <span>GST</span><span>₹{totals.gst_amount.toFixed(2)}</span>
