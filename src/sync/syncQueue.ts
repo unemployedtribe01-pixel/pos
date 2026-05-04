@@ -4,6 +4,10 @@ import { SyncQueueItem } from '../types'
 
 let syncing = false
 
+function isValidIsoTimestamp(value: unknown): boolean {
+  return typeof value === 'string' && value.length >= 10 && !Number.isNaN(Date.parse(value))
+}
+
 export function getPendingSyncItems(limit = 50): SyncQueueItem[] {
   const db = getDB()
   const result = db.exec(
@@ -58,6 +62,10 @@ export async function drainSyncQueue(): Promise<void> {
     for (const item of items) {
       try {
         const payload = JSON.parse(item.payload)
+        if (item.entity === 'products' && (item.operation === 'INSERT' || item.operation === 'UPDATE')) {
+          if (!isValidIsoTimestamp(payload.created_at)) payload.created_at = new Date().toISOString()
+          if (!isValidIsoTimestamp(payload.updated_at)) payload.updated_at = payload.created_at
+        }
         if (item.operation === 'INSERT' || item.operation === 'UPDATE') {
           const { error } = await client.from(item.entity).upsert(payload)
           if (error) throw error

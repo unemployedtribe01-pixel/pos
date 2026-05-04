@@ -1,19 +1,26 @@
 import { getDB, generateId, now, persistDB } from '../index'
 import { Product } from '../../types'
 
+const PRODUCT_COLUMNS = `
+  id, name, category, brand, variant,
+  hsn_code, gst_rate, mrp, cost_price,
+  unit, stock_qty, low_stock_threshold, aliases,
+  is_active, created_at, updated_at, price_inclusive
+`
+
 function rowToProduct(row: any[]): Product {
   return {
     id: row[0], name: row[1], category: row[2], brand: row[3], variant: row[4],
     hsn_code: row[5], gst_rate: row[6], mrp: row[7], cost_price: row[8],
     unit: row[9], stock_qty: row[10], low_stock_threshold: row[11],
-    aliases: row[12], price_inclusive: Boolean(row[13]), is_active: Boolean(row[14]),
-    created_at: row[15], updated_at: row[16],
+    aliases: row[12], is_active: Boolean(row[13]),
+    created_at: row[14], updated_at: row[15], price_inclusive: Boolean(row[16]),
   }
 }
 
 export function getAllProducts(): Product[] {
   const db = getDB()
-  const result = db.exec('SELECT * FROM products WHERE is_active=1 ORDER BY name')
+  const result = db.exec(`SELECT ${PRODUCT_COLUMNS} FROM products WHERE is_active=1 ORDER BY name`)
   if (!result.length) return []
   return result[0].values.map(rowToProduct)
 }
@@ -23,7 +30,7 @@ export function searchProducts(query: string, limit = 20): Product[] {
   const db = getDB()
   const q = `%${query.toLowerCase()}%`
   const result = db.exec(
-    `SELECT * FROM products WHERE is_active=1 AND (
+    `SELECT ${PRODUCT_COLUMNS} FROM products WHERE is_active=1 AND (
       LOWER(name) LIKE ? OR LOWER(brand) LIKE ? OR LOWER(variant) LIKE ? OR LOWER(aliases) LIKE ?
     ) LIMIT ?`,
     [q, q, q, q, limit]
@@ -34,7 +41,7 @@ export function searchProducts(query: string, limit = 20): Product[] {
 
 export function getProductById(id: string): Product | null {
   const db = getDB()
-  const result = db.exec('SELECT * FROM products WHERE id=?', [id])
+  const result = db.exec(`SELECT ${PRODUCT_COLUMNS} FROM products WHERE id=?`, [id])
   if (!result.length || !result[0].values.length) return null
   return rowToProduct(result[0].values[0])
 }
