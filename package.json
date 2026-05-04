@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "test:e2e": "playwright test",
     "preview": "vite preview",
-    "postinstall": "copy node_modules\\sql.js\\dist\\sql-wasm.wasm public\\sql-wasm.wasm"
+    "postinstall": "node -e \"const fs=require('fs');fs.copyFileSync('node_modules/sql.js/dist/sql-wasm.wasm','public/sql-wasm.wasm')\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
