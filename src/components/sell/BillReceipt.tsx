@@ -7,6 +7,7 @@ interface Props { bill: Bill }
 
 // Build HSN summary from bill lines
 function buildHsnSummary(bill: Bill) {
+  const n = (value: unknown) => Number(value || 0)
   const map = new Map<string, {
     hsn_code: string
     taxable: number
@@ -22,20 +23,20 @@ function buildHsnSummary(bill: Bill) {
     const key = `${line.product_snapshot.hsn_code}-${line.gst_rate}`
     const existing = map.get(key)
     if (existing) {
-      existing.taxable += line.taxable_value
-      existing.cgst_amount += line.cgst_amount || 0
-      existing.sgst_amount += line.sgst_amount || 0
-      existing.igst_amount += line.igst_amount || 0
+      existing.taxable += n(line.taxable_value)
+      existing.cgst_amount += n(line.cgst_amount)
+      existing.sgst_amount += n(line.sgst_amount)
+      existing.igst_amount += n(line.igst_amount)
     } else {
       map.set(key, {
         hsn_code: line.product_snapshot.hsn_code,
-        taxable: line.taxable_value,
-        cgst_rate: line.cgst_rate || line.gst_rate / 2,
-        cgst_amount: line.cgst_amount || 0,
-        sgst_rate: line.sgst_rate || line.gst_rate / 2,
-        sgst_amount: line.sgst_amount || 0,
-        igst_rate: line.igst_rate || 0,
-        igst_amount: line.igst_amount || 0,
+        taxable: n(line.taxable_value),
+        cgst_rate: n(line.cgst_rate) || n(line.gst_rate) / 2,
+        cgst_amount: n(line.cgst_amount),
+        sgst_rate: n(line.sgst_rate) || n(line.gst_rate) / 2,
+        sgst_amount: n(line.sgst_amount),
+        igst_rate: n(line.igst_rate),
+        igst_amount: n(line.igst_amount),
       })
     }
   }
@@ -115,19 +116,19 @@ const BillReceipt = forwardRef<HTMLDivElement, Props>(({ bill }, ref) => {
             <div style={{ fontSize:'9px', color:'#444' }}>{line.product_snapshot.variant}</div>
             <div style={{ display:'grid', gridTemplateColumns:'3fr 0.7fr 0.9fr 1fr', gap:'0 2px', fontSize:'10px' }}>
               <span style={{ fontSize:'9px', color:'#666' }}>HSN: {line.product_snapshot.hsn_code}</span>
-              <span style={{ textAlign:'right' }}>{line.qty}</span>
-              <span style={{ textAlign:'right' }}>₹{line.unit_price.toFixed(2)}</span>
-              <span style={{ textAlign:'right' }}>₹{line.taxable_value.toFixed(2)}</span>
+              <span style={{ textAlign:'right' }}>{n(line.qty)}</span>
+              <span style={{ textAlign:'right' }}>₹{n(line.unit_price).toFixed(2)}</span>
+              <span style={{ textAlign:'right' }}>₹{n(line.taxable_value).toFixed(2)}</span>
             </div>
-            {(line.discount_per_unit > 0) && (
+            {(n(line.discount_per_unit) > 0) && (
               <div style={{ fontSize:'9px', color:'#c00' }}>
-                Disc: ₹{(line.discount_per_unit * line.qty).toFixed(2)}
+                Disc: ₹{(n(line.discount_per_unit) * n(line.qty)).toFixed(2)}
               </div>
             )}
             <div style={{ fontSize:'9px', color:'#555' }}>
               {supply_type === 'intra'
-                ? `CGST ${line.cgst_rate || line.gst_rate/2}%: ₹${(line.cgst_amount||0).toFixed(2)} | SGST ${line.sgst_rate || line.gst_rate/2}%: ₹${(line.sgst_amount||0).toFixed(2)}`
-                : `IGST ${line.igst_rate || line.gst_rate}%: ₹${(line.igst_amount||0).toFixed(2)}`
+                ? `CGST ${n(line.cgst_rate) || n(line.gst_rate)/2}%: ₹${n(line.cgst_amount).toFixed(2)} | SGST ${n(line.sgst_rate) || n(line.gst_rate)/2}%: ₹${n(line.sgst_amount).toFixed(2)}`
+                : `IGST ${n(line.igst_rate) || n(line.gst_rate)}%: ₹${n(line.igst_amount).toFixed(2)}`
               }
             </div>
           </div>
@@ -136,7 +137,7 @@ const BillReceipt = forwardRef<HTMLDivElement, Props>(({ bill }, ref) => {
 
       {/* ── TOTALS ── */}
       <div style={{ borderBottom:'1px dashed #000', paddingBottom:'3px', marginBottom:'3px' }}>
-        {row('Taxable Value:', `₹${bill.subtotal.toFixed(2)}`)}
+        {row('Taxable Value:', `₹${n(bill.subtotal).toFixed(2)}`)}
         {supply_type === 'intra' ? (
           <>
             {row(`CGST:`, `₹${n(bill.cgst_amount).toFixed(2)}`)}
@@ -145,8 +146,8 @@ const BillReceipt = forwardRef<HTMLDivElement, Props>(({ bill }, ref) => {
         ) : (
           row(`IGST:`, `₹${n(bill.igst_amount).toFixed(2)}`)
         )}
-        {bill.rounding !== 0 && row('Rounding:', `₹${bill.rounding.toFixed(2)}`)}
-        {row('Invoice Total:', `₹${bill.total.toFixed(2)}`, true)}
+        {n(bill.rounding) !== 0 && row('Rounding:', `₹${n(bill.rounding).toFixed(2)}`)}
+        {row('Invoice Total:', `₹${n(bill.total).toFixed(2)}`, true)}
       </div>
 
       {/* ── AMOUNT IN WORDS ── */}
@@ -185,17 +186,17 @@ const BillReceipt = forwardRef<HTMLDivElement, Props>(({ bill }, ref) => {
               {p.mode === 'credit' ? 'Udhaar (Credit)' : p.mode}
               {p.ref_no ? ` — ${p.ref_no}` : ''}
             </span>
-            <span>₹{p.amount.toFixed(2)}</span>
+            <span>₹{n(p.amount).toFixed(2)}</span>
           </div>
         ))}
-        {bill.credit_amount > 0 && (
+        {n(bill.credit_amount) > 0 && (
           <div style={{ marginTop:'2px', fontWeight:'bold', color:'#c00', fontSize:'10px' }}>
-            ⚠ Added to Udhaar: ₹{bill.credit_amount.toFixed(2)}
+            ⚠ Added to Udhaar: ₹{n(bill.credit_amount).toFixed(2)}
           </div>
         )}
-        {bill.change_due > 0 && (
+        {n(bill.change_due) > 0 && (
           <div style={{ display:'flex', justifyContent:'space-between', fontWeight:'bold', fontSize:'10px', color:'#c60' }}>
-            <span>Change Returned:</span><span>₹{bill.change_due.toFixed(2)}</span>
+            <span>Change Returned:</span><span>₹{n(bill.change_due).toFixed(2)}</span>
           </div>
         )}
       </div>
