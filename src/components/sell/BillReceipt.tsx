@@ -54,7 +54,8 @@ const BillReceipt = forwardRef<HTMLDivElement, Props>(({ bill }, ref) => {
   const cs = bill.customer_snapshot
   const supply_type = bill.supply_type || 'intra'
   const hsnSummary = buildHsnSummary(bill)
-  const inWords = amountToWords(Math.round(bill.total))
+  const inWords = amountToWords(Math.round(Number(bill.total) || 0))
+  const n = (value: unknown) => Number(value || 0)
 
   const row = (left: string, right: string, bold = false) => (
     <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'1px' }}>
@@ -138,11 +139,11 @@ const BillReceipt = forwardRef<HTMLDivElement, Props>(({ bill }, ref) => {
         {row('Taxable Value:', `₹${bill.subtotal.toFixed(2)}`)}
         {supply_type === 'intra' ? (
           <>
-            {row(`CGST:`, `₹${(bill.cgst_amount||0).toFixed(2)}`)}
-            {row(`SGST:`, `₹${(bill.sgst_amount||0).toFixed(2)}`)}
+            {row(`CGST:`, `₹${n(bill.cgst_amount).toFixed(2)}`)}
+            {row(`SGST:`, `₹${n(bill.sgst_amount).toFixed(2)}`)}
           </>
         ) : (
-          row(`IGST:`, `₹${(bill.igst_amount||0).toFixed(2)}`)
+          row(`IGST:`, `₹${n(bill.igst_amount).toFixed(2)}`)
         )}
         {bill.rounding !== 0 && row('Rounding:', `₹${bill.rounding.toFixed(2)}`)}
         {row('Invoice Total:', `₹${bill.total.toFixed(2)}`, true)}

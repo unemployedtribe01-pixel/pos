@@ -58,12 +58,16 @@ export async function bootstrapFromSupabaseIfLocalEmpty(): Promise<void> {
   try {
     for (const p of productsRes.data || []) {
       db.run(
-        `INSERT OR REPLACE INTO products VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT OR REPLACE INTO products (
+          id, name, category, brand, variant, hsn_code,
+          gst_rate, mrp, cost_price, unit, stock_qty, low_stock_threshold,
+          aliases, price_inclusive, is_active, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           p.id, p.name, p.category, p.brand, p.variant, p.hsn_code,
           asNum(p.gst_rate), asNum(p.mrp), asNum(p.cost_price), p.unit,
           asNum(p.stock_qty), asNum(p.low_stock_threshold), p.aliases || '',
-          p.is_active ? 1 : 0, p.created_at, p.updated_at || p.created_at,
+          p.price_inclusive ? 1 : 0, p.is_active ? 1 : 0, p.created_at, p.updated_at || p.created_at,
         ]
       )
     }
@@ -90,7 +94,14 @@ export async function bootstrapFromSupabaseIfLocalEmpty(): Promise<void> {
 
     for (const b of billsRes.data || []) {
       db.run(
-        `INSERT OR REPLACE INTO bills VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT OR REPLACE INTO bills (
+          id, invoice_no, customer_id, customer_snapshot, date,
+          lines, subtotal, gst_amount, rounding, total,
+          payments, credit_amount, change_due, supply_type,
+          cgst_amount, sgst_amount, igst_amount,
+          place_of_supply_code, place_of_supply_name,
+          status, notes, created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           b.id, b.invoice_no, b.customer_id || null, asText(b.customer_snapshot), b.date,
           asText(b.lines), asNum(b.subtotal), asNum(b.gst_amount), asNum(b.rounding), asNum(b.total),

@@ -4,6 +4,15 @@ import { computeCartTotals, determineSupplyType, getNextInvoiceNo, splitGst } fr
 import { getStoreConfig } from './storeConfig'
 import { updateStock } from './products'
 
+const BILL_COLUMNS = `
+  id, invoice_no, customer_id, customer_snapshot, date,
+  lines, subtotal, gst_amount, rounding, total,
+  payments, credit_amount, change_due, supply_type,
+  cgst_amount, sgst_amount, igst_amount,
+  place_of_supply_code, place_of_supply_name,
+  status, notes, created_at
+`
+
 function buildBillLines(draft: BillDraft, billId: string, supply_type: 'intra' | 'inter'): BillLine[] {
   return draft.cart.map(item => {
     const taxable = Math.round(item.qty * (item.unit_price - item.discount_per_unit) * 100) / 100
@@ -38,7 +47,7 @@ export function confirmBill(draft: BillDraft): string {
     ? { name:draft.customer.name, phone:draft.customer.phone, gstin:draft.customer.gstin, address:draft.customer.address }
     : null
 
-  db.run(`INSERT INTO bills VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+  db.run(`INSERT INTO bills (${BILL_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
     billId, invoiceNo, draft.customer?.id || null,
     customerSnapshot ? JSON.stringify(customerSnapshot) : null,
     dateStr, JSON.stringify(lines),
@@ -96,7 +105,7 @@ export function confirmBill(draft: BillDraft): string {
 
 export function getBillById(id: string): Bill | null {
   const db = getDB()
-  const result = db.exec('SELECT * FROM bills WHERE id=?', [id])
+  const result = db.exec(`SELECT ${BILL_COLUMNS} FROM bills WHERE id=?`, [id])
   if (!result.length || !result[0].values.length) return null
   const r = result[0].values[0]
   return {
@@ -115,7 +124,7 @@ export function getBillById(id: string): Bill | null {
 
 export function getRecentBills(limit = 50): Bill[] {
   const db = getDB()
-  const result = db.exec('SELECT * FROM bills ORDER BY created_at DESC LIMIT ?', [limit])
+  const result = db.exec(`SELECT ${BILL_COLUMNS} FROM bills ORDER BY created_at DESC LIMIT ?`, [limit])
   if (!result.length) return []
   return result[0].values.map(r => ({
     id:r[0] as string, invoice_no:r[1] as string, customer_id:r[2] as string|null,
