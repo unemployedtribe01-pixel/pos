@@ -1,6 +1,5 @@
 import { Fragment, useState } from 'react'
 import { ImportRow, ImportError, ALLOWED_CATEGORIES, ALLOWED_UNITS } from '../../utils/productImport'
-import { validateRow } from '../../utils/productValidation'
 
 interface Props {
   rows: ImportRow[]
@@ -23,6 +22,23 @@ const STATUS_LABELS: Record<string, string> = {
   SKIP: '— SKIP',
 }
 
+function ConfidenceBadge({ row }: { row: ImportRow }) {
+  if (row.status === 'SKIP') return <span className="text-slate-600">—</span>
+  const conf = row.confidence ?? 'high'
+  const score = row.confidenceScore ?? 100
+  const reasons = row.confidenceReasons ?? []
+  const cls =
+    conf === 'high' ? 'text-green-400 bg-green-900/20' :
+      conf === 'medium' ? 'text-amber-300 bg-amber-900/20' :
+        'text-red-400 bg-red-900/20'
+  const label = `${conf} (${score})`
+  return (
+    <span title={reasons.join(' · ') || 'OK'} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${cls}`}>
+      {label}
+    </span>
+  )
+}
+
 export default function ImportPreviewTable({ rows, onRowUpdate }: Props) {
   const [expandedRow, setExpandedRow] = useState<number | null>(null)
 
@@ -41,8 +57,7 @@ export default function ImportPreviewTable({ rows, onRowUpdate }: Props) {
       const newNormalized = { ...row.normalized, [field]: type === 'number' ? parseFloat(val) || 0 : val }
       const newRaw = { ...row.raw, [field]: val }
       const newRow: ImportRow = { ...row, normalized: newNormalized as any, raw: newRaw, _edited: true }
-      const reValidated = validateRow(newRow)
-      onRowUpdate(reValidated)
+      onRowUpdate(newRow)
     }
 
     const baseClass = `bg-slate-700 border rounded px-1.5 py-0.5 text-xs text-white w-full focus:outline-none
@@ -85,6 +100,7 @@ export default function ImportPreviewTable({ rows, onRowUpdate }: Props) {
           <tr className="text-xs text-slate-500 border-b border-slate-800">
             <th className="px-3 py-2 text-left w-12">Row</th>
             <th className="px-3 py-2 text-left w-20">Status</th>
+            <th className="px-3 py-2 text-left w-24">Confidence</th>
             <th className="px-3 py-2 text-left min-w-[140px]">Product Name</th>
             <th className="px-3 py-2 text-left w-24">Category</th>
             <th className="px-3 py-2 text-left w-24">Brand</th>
@@ -114,6 +130,9 @@ export default function ImportPreviewTable({ rows, onRowUpdate }: Props) {
                   <td className="px-3 py-2 text-slate-500 text-xs">{row.rowIndex}</td>
                   <td className={`px-3 py-2 text-xs font-semibold ${STATUS_COLORS[row.status]}`}>
                     {STATUS_LABELS[row.status]}
+                  </td>
+                  <td className="px-3 py-2">
+                    <ConfidenceBadge row={row} />
                   </td>
                   <td className="px-3 py-2">
                     <div className="text-white text-xs font-medium truncate max-w-[140px]">
@@ -166,7 +185,7 @@ export default function ImportPreviewTable({ rows, onRowUpdate }: Props) {
 
                 {isExpanded && (
                   <tr key={`${row.rowIndex}-edit`} className="bg-slate-800/80 border-b border-slate-700">
-                    <td colSpan={12} className="px-4 py-4">
+                    <td colSpan={13} className="px-4 py-4">
                       <div className="grid grid-cols-4 gap-3 mb-3">
                         {[
                           { label: 'Product Name *', field: 'name', type: 'text' },

@@ -60,6 +60,8 @@ export interface ImportError {
   suggestion?: string
 }
 
+export type ImportConfidence = 'high' | 'medium' | 'risky'
+
 export interface ImportRow {
   rowIndex: number
   raw: Record<string, string>
@@ -71,6 +73,9 @@ export interface ImportRow {
   existingProduct?: Product
   acknowledged: boolean
   _edited: boolean
+  confidence: ImportConfidence
+  confidenceScore: number
+  confidenceReasons: string[]
 }
 
 export interface ImportSession {
@@ -313,6 +318,9 @@ export function normalizeRow(raw: Record<string, string>, rowIndex: number): Imp
       warnings: [],
       acknowledged: false,
       _edited: false,
+      confidence: 'high',
+      confidenceScore: 100,
+      confidenceReasons: [],
     }
   }
 
@@ -343,5 +351,56 @@ export function normalizeRow(raw: Record<string, string>, rowIndex: number): Imp
     warnings: [],
     acknowledged: false,
     _edited: false,
+    confidence: 'high',
+    confidenceScore: 100,
+    confidenceReasons: [],
+  }
+}
+
+/** Dry-run counts for final confirmation (no DB). */
+export interface DryRunConfirmationCounts {
+  rowsToCreate: number
+  rowsToUpdate: number
+  rowsSkipped: number
+  rowsBlockedByErrors: number
+  rowsWithWarnings: number
+  riskyRows: number
+  possibleDuplicates: number
+}
+
+function rowWouldImport(r: ImportRow, mode: ImportMode): boolean {
+  if (r.status === 'SKIP') return false
+  if (r.errors.length > 0) return false
+  if (r.warnings.length > 0 && !r.acknowledged && r.status !== 'UPDATE_EXISTING') return false
+  if (mode === 'create_only' && r.status === 'UPDATE_EXISTING') return false
+  if (mode === 'update_only' && r.status === 'CREATE_NEW') return false
+  return r.status === 'CREATE_NEW' || r.status === 'UPDATE_EXISTING'
+}
+
+export function computeDryRunConfirmation(
+  rows: ImportRow[],
+  mode: ImportMode
+): DryRunConfirmationCounts {
+  const active = rows.filter(r => r.status !== 'SKIP')
+  const rowsBlockedByErrors = active.filter(r => r.errors.length > 0).length
+  const rowsWithWarnings = active.filter(r => r.warnings.length > 0 && r.errors.length === 0).length
+  const possibleDuplicates = active.filter(r => r.status === 'POSSIBLE_DUPLICATE').length
+  const riskyRows = active.filter(r => r.confidence === 'risky').length
+
+  const rowsToCreate = active.filter(r => rowWouldImport(r, mode) && r.status === 'CREATE_NEW').length
+  const rowsToUpdate = active.filter(r => rowWouldImport(r, mode) && r.status === 'UPDATE_EXISTING').length
+
+  const blankSkips = rows.filter(r => r.status === 'SKIP').length
+  const skippedActive = active.filter(r => !rowWouldImport(r, mode) && r.errors.length === 0).length
+  const rowsSkipped = blankSkips + skippedActive
+
+  return {
+    rowsToCreate,
+    rowsToUpdate,
+    rowsSkipped,
+    rowsBlockedByErrors,
+    rowsWithWarnings,
+    riskyRows,
+    possibleDuplicates,
   }
 }

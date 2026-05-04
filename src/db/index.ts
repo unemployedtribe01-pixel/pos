@@ -51,6 +51,19 @@ export async function initDB(): Promise<any> {
   db = saved ? new SQL.Database(saved) : new SQL.Database()
   db.run(SCHEMA_SQL)
   const migrations = [
+    `CREATE TABLE IF NOT EXISTS import_sessions (
+      id TEXT PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      total_rows INTEGER NOT NULL,
+      created_count INTEGER NOT NULL,
+      updated_count INTEGER NOT NULL,
+      skipped_count INTEGER NOT NULL,
+      error_count INTEGER NOT NULL,
+      warning_count INTEGER NOT NULL,
+      risky_count INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    )`,
     "ALTER TABLE products ADD COLUMN price_inclusive INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE bills ADD COLUMN change_due REAL NOT NULL DEFAULT 0",
     "ALTER TABLE bills ADD COLUMN supply_type TEXT NOT NULL DEFAULT 'intra'",

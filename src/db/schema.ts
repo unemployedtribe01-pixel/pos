@@ -64,6 +64,20 @@ CREATE TABLE IF NOT EXISTS sync_queue (
   attempts INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'pending'
 );
 
+CREATE TABLE IF NOT EXISTS import_sessions (
+  id TEXT PRIMARY KEY,
+  file_name TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  total_rows INTEGER NOT NULL,
+  created_count INTEGER NOT NULL,
+  updated_count INTEGER NOT NULL,
+  skipped_count INTEGER NOT NULL,
+  error_count INTEGER NOT NULL,
+  warning_count INTEGER NOT NULL,
+  risky_count INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS credit_notes (
   id TEXT PRIMARY KEY,
   credit_note_no TEXT NOT NULL UNIQUE,

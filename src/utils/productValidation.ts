@@ -1,9 +1,12 @@
 import Fuse from 'fuse.js'
+import type { Product } from '../types'
 import {
-  ImportRow, ImportError, ALLOWED_CATEGORIES, ALLOWED_UNITS,
-  ALLOWED_GST_RATES, HSN_DEFAULTS, HSN_CATEGORY_MAP,
+  ImportRow, ImportError, ImportConfidence, ALLOWED_CATEGORIES, ALLOWED_UNITS,
+  ALLOWED_GST_RATES,
 } from './productImport'
 import { getAllProductsForImport } from '../db/queries/products'
+import { validateTaxAgainstCategory } from './productTaxRules'
+import { validatePriceSanity } from './productPriceRules'
 
 function err(code: string, field: string, message: string, suggestion?: string): ImportError {
   return { code, type: 'error', field, message, suggestion }
@@ -11,6 +14,86 @@ function err(code: string, field: string, message: string, suggestion?: string):
 
 function warn(code: string, field: string, message: string, suggestion?: string): ImportError {
   return { code, type: 'warning', field, message, suggestion }
+}
+
+export function computeConfidence(row: ImportRow): {
+  confidence: ImportConfidence
+  confidenceScore: number
+  confidenceReasons: string[]
+} {
+  if (row.errors.length > 0) {
+    return {
+      confidence: 'risky',
+      confidenceScore: 0,
+      confidenceReasons: ['Row has blocking errors'],
+    }
+  }
+
+  let score = 100
+  const reasons: string[] = []
+
+  if (row.status === 'POSSIBLE_DUPLICATE') {
+    score -= 20
+    reasons.push('Possible duplicate of existing product')
+  }
+
+  for (const w of row.warnings) {
+    if (w.code === 'V19' && row.status === 'POSSIBLE_DUPLICATE') continue
+    if (w.code.startsWith('TAX_')) {
+      score -= 20
+      reasons.push(w.message)
+    } else if (w.code.startsWith('PRC_')) {
+      score -= 15
+      reasons.push(w.message)
+    } else {
+      score -= 10
+      reasons.push(w.message)
+    }
+  }
+
+  if (!row.normalized.aliases?.trim()) {
+    score -= 5
+    reasons.push('No search aliases (recommended for faster lookup)')
+  }
+
+  score = Math.max(0, Math.min(100, score))
+
+  let confidence: ImportConfidence
+  if (score >= 80) confidence = 'high'
+  else if (score >= 50) confidence = 'medium'
+  else confidence = 'risky'
+
+  return { confidence, confidenceScore: score, confidenceReasons: reasons }
+}
+
+/** Run after validateAllRows → detectInFileduplicates → checkDuplicatesAgainstDB. */
+export function finalizeImportRows(rows: ImportRow[]): ImportRow[] {
+  return rows.map(r => {
+    if (r.status === 'SKIP') return r
+    const c = computeConfidence(r)
+    return { ...r, ...c }
+  })
+}
+
+/** Revalidate without DB (for pure tests and offline preview when DB unavailable). */
+export function reprocessImportRowsInMemory(rows: ImportRow[]): ImportRow[] {
+  let out = rows.map(validateRow)
+  out = detectInFileduplicates(out)
+  out = finalizeImportRows(out)
+  return out
+}
+
+/** Full pipeline including DB duplicate detection (requires initDB). */
+export function reprocessImportRows(rows: ImportRow[]): ImportRow[] {
+  let out = rows.map(validateRow)
+  out = detectInFileduplicates(out)
+  try {
+    out = checkDuplicatesAgainstDB(out)
+  } catch {
+    // DB not initialised (e.g. isolated test) — skip DB duplicate pass
+  }
+  out = finalizeImportRows(out)
+  return out
 }
 
 export function validateRow(row: ImportRow): ImportRow {
@@ -83,50 +166,39 @@ export function validateRow(row: ImportRow): ImportRow {
     errors.push(err('V22', 'gst_rate', 'GST rate must be a whole number (0, 5, 12, 18, or 28)'))
   }
 
-  // ── Warnings ──────────────────────────────────────────────────────────
+  const gstOk = n.gst_rate !== undefined && n.gst_rate !== -1 &&
+    (ALLOWED_GST_RATES as readonly number[]).includes(n.gst_rate as number)
+  const hsnFieldBlocked = errors.some(e => e.field === 'hsn_code')
 
-  // V10: cost_price > mrp
-  if (n.cost_price && n.mrp && n.cost_price > n.mrp) {
-    warnings.push(warn('V10', 'cost_price',
-      `Cost price ₹${n.cost_price} is higher than MRP ₹${n.mrp}. Verify pricing.`))
-  }
-
-  // V20: unrealistic MRP for cement
-  if (n.category === 'cement' && n.mrp && (n.mrp < 100 || n.mrp > 2000)) {
-    warnings.push(warn('V20', 'mrp',
-      `MRP ₹${n.mrp} seems unusual for a cement bag. Standard range: ₹300–₹600.`))
-  }
-
-  // V11–V16: category HSN mismatch warnings
-  if (n.category && n.hsn_code && errors.length === 0) {
-    const allowed = HSN_CATEGORY_MAP[n.category]
-    const defaultHsn = HSN_DEFAULTS[n.category]
-
-    if (allowed && !allowed.includes(hsnDigits)) {
-      warnings.push(warn(
-        n.category === 'cement' ? 'V11' : n.category === 'paint' ? 'V13' : n.category === 'pipe' ? 'V15' : 'V16',
-        'hsn_code',
-        `${n.category} products usually use HSN: ${allowed.join(' or ')}. You entered: ${hsnDigits}. Confirm if correct.`,
-        `Suggested: ${defaultHsn?.hsn}`
-      ))
-    }
-
-    if (n.category === 'cement' && n.gst_rate !== 18) {
-      warnings.push(warn('V12', 'gst_rate',
-        `Cement GST rate is 18% (reduced from 28% effective September 2025). You entered: ${n.gst_rate}%.`,
-        'Set gst_rate to 18'))
-    }
-    if (n.category === 'paint' && n.gst_rate !== 18) {
-      warnings.push(warn('V14', 'gst_rate',
-        `Paint GST rate is 18%. You entered: ${n.gst_rate}%.`, 'Set gst_rate to 18'))
+  // ── Smart tax / HSN (merchant-proof) ─────────────────────────────────
+  if (!hsnFieldBlocked && gstOk && n.category && (ALLOWED_CATEGORIES as readonly string[]).includes(n.category)) {
+    const tax = validateTaxAgainstCategory(n.category, n.hsn_code || '', Number(n.gst_rate))
+    if (tax.severity === 'error') {
+      errors.push(err('TAX_E', 'hsn_code', tax.message, `Suggested HSN: ${tax.suggestedHsn || '—'}, GST: ${tax.suggestedGstRate}%`))
+    } else if (tax.severity === 'warning') {
+      warnings.push(warn('TAX_W', 'hsn_code', tax.message, `Suggested HSN: ${tax.suggestedHsn}, GST: ${tax.suggestedGstRate}%`))
     }
   }
+
+  // ── Price sanity ────────────────────────────────────────────────────────
+  const mrpInvalid = errors.some(e => e.field === 'mrp')
+  if (!mrpInvalid && n.category && n.mrp !== undefined) {
+    const price = validatePriceSanity(n.category, n.unit || '', Number(n.mrp), n.cost_price !== undefined ? Number(n.cost_price) : undefined)
+    if (price.severity === 'error') {
+      errors.push(err('PRC_E', 'mrp', price.message))
+    } else if (price.severity === 'warning') {
+      warnings.push(warn('PRC_W', 'mrp', price.message))
+    }
+  }
+
+  const prior = row.status === 'ERROR' && errors.length === 0 ? 'CREATE_NEW' : row.status
+  const nextStatus = errors.length > 0 ? 'ERROR' as const : prior
 
   return {
     ...row,
     errors,
     warnings,
-    status: errors.length > 0 ? 'ERROR' : row.status,
+    status: nextStatus,
   }
 }
 
@@ -134,7 +206,6 @@ export function validateAllRows(rows: ImportRow[]): ImportRow[] {
   return rows.map(validateRow)
 }
 
-// Detect duplicates WITHIN the uploaded file (not DB)
 export function detectInFileduplicates(rows: ImportRow[]): ImportRow[] {
   const keyCount = new Map<string, number[]>()
 
@@ -176,7 +247,6 @@ export function checkDuplicatesAgainstDB(rows: ImportRow[]): ImportRow[] {
 
   if (existing.length === 0) return rows
 
-  // Build Fuse index on existing products for fuzzy matching
   const fuse = new Fuse(existing, {
     keys: [
       { name: 'name', weight: 0.5 },
@@ -198,7 +268,6 @@ export function checkDuplicatesAgainstDB(rows: ImportRow[]): ImportRow[] {
       row.normalized.unit?.toLowerCase().trim(),
     ].join('|')
 
-    // Check exact match first
     const exactMatch = existing.find(e => e.matchKey === rowKey)
     if (exactMatch) {
       return {
@@ -212,7 +281,7 @@ export function checkDuplicatesAgainstDB(rows: ImportRow[]): ImportRow[] {
           variant: exactMatch.variant,
           unit: exactMatch.unit,
           mrp: exactMatch.mrp,
-        } as any,
+        } as Product,
         warnings: [...row.warnings, {
           code: 'V18',
           type: 'warning' as const,
@@ -222,7 +291,6 @@ export function checkDuplicatesAgainstDB(rows: ImportRow[]): ImportRow[] {
       }
     }
 
-    // Fuzzy match
     const fuzzyResults = fuse.search(`${row.normalized.brand} ${row.normalized.name}`)
     if (fuzzyResults.length > 0 && (fuzzyResults[0].score || 1) < 0.35) {
       const match = fuzzyResults[0].item
