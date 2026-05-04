@@ -5,6 +5,7 @@ import App from './App'
 import { initDB, startAutoPersist, checkDBHealth } from './db'
 import { seedIfEmpty } from './db/seed'
 import { startSyncWorker } from './sync/syncQueue'
+import { bootstrapFromSupabaseIfLocalEmpty } from './sync/bootstrap'
 import ErrorBoundary from './components/shared/ErrorBoundary'
 
 const rootEl = document.getElementById('root')
@@ -20,6 +21,7 @@ root.render(
 )
 
 initDB()
+  .then(() => bootstrapFromSupabaseIfLocalEmpty())
   .then(() => seedIfEmpty())
   .then(() => {
     startAutoPersist()
