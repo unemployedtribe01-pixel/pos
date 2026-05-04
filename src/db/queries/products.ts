@@ -25,6 +25,35 @@ export function getAllProducts(): Product[] {
   return result[0].values.map(rowToProduct)
 }
 
+export function getAllProductsForImport(): Array<{
+  id: string
+  matchKey: string
+  name: string
+  brand: string
+  variant: string
+  unit: string
+  mrp: number
+}> {
+  const db = getDB()
+  const result = db.exec('SELECT id, name, brand, variant, unit, mrp FROM products WHERE is_active=1')
+  if (!result.length) return []
+  return result[0].values.map(r => {
+    const brand = (r[2] as string).toLowerCase().trim()
+    const name = (r[1] as string).toLowerCase().trim()
+    const variant = (r[3] as string).toLowerCase().trim()
+    const unit = (r[4] as string).toLowerCase().trim()
+    return {
+      id: r[0] as string,
+      matchKey: [brand, name, variant, unit].join('|'),
+      name: r[1] as string,
+      brand: r[2] as string,
+      variant: r[3] as string,
+      unit: r[4] as string,
+      mrp: r[5] as number,
+    }
+  })
+}
+
 export function searchProducts(query: string, limit = 20): Product[] {
   if (!query.trim()) return getAllProducts().slice(0, limit)
   const db = getDB()
@@ -98,6 +127,54 @@ export function upsertProduct(p: Omit<Product, 'created_at' | 'updated_at'>): Pr
   ])
   persistDB()
   return getProductById(id || '')!
+}
+
+export function bulkUpsertProducts(
+  creates: Array<Omit<Product, 'created_at' | 'updated_at'>>,
+  updates: Array<Omit<Product, 'created_at' | 'updated_at'> & { id: string }>
+): { created: number; updated: number } {
+  let created = 0
+  let updated = 0
+
+  const db = getDB()
+  const timestamp = now()
+
+  for (const p of creates) {
+    const id = p.id || generateId()
+    db.run(
+      'INSERT INTO products VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [id, p.name, p.category, p.brand, p.variant, p.hsn_code, p.gst_rate, p.mrp,
+        p.cost_price, p.unit, p.stock_qty, p.low_stock_threshold, p.aliases,
+        p.price_inclusive ? 1 : 0, p.is_active ? 1 : 0, timestamp, timestamp]
+    )
+    // Add to sync queue
+    db.run('INSERT INTO sync_queue VALUES (?,?,?,?,?,?,?)', [
+      generateId(), 'products', 'INSERT',
+      JSON.stringify({ id, name: p.name, brand: p.brand, variant: p.variant, mrp: p.mrp }),
+      timestamp, 0, 'pending',
+    ])
+    created++
+  }
+
+  for (const p of updates) {
+    db.run(
+      `UPDATE products SET name=?,category=?,brand=?,variant=?,hsn_code=?,gst_rate=?,mrp=?,
+       cost_price=?,unit=?,stock_qty=?,low_stock_threshold=?,aliases=?,price_inclusive=?,is_active=?,updated_at=?
+       WHERE id=?`,
+      [p.name, p.category, p.brand, p.variant, p.hsn_code, p.gst_rate, p.mrp,
+        p.cost_price, p.unit, p.stock_qty, p.low_stock_threshold, p.aliases,
+        p.price_inclusive ? 1 : 0, p.is_active ? 1 : 0, timestamp, p.id]
+    )
+    db.run('INSERT INTO sync_queue VALUES (?,?,?,?,?,?,?)', [
+      generateId(), 'products', 'UPDATE',
+      JSON.stringify({ id: p.id, name: p.name, mrp: p.mrp }),
+      timestamp, 0, 'pending',
+    ])
+    updated++
+  }
+
+  void persistDB()
+  return { created, updated }
 }
 
 export function updateStock(productId: string, delta: number): void {

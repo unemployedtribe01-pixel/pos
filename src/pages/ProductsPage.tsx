@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { getAllProducts, searchProducts, upsertProduct } from '../db/queries/products'
 import { Product } from '../types'
 import { generateId } from '../db'
+import ProductImportModal from '../components/products/ProductImportModal'
 
 const EMPTY_FORM: Omit<Product, 'created_at'|'updated_at'> = {
   id:'', name:'', category:'cement', brand:'', variant:'',
@@ -14,6 +15,7 @@ export default function ProductsPage() {
   const [query, setQuery] = useState('')
   const [form, setForm] = useState({ ...EMPTY_FORM })
   const [editing, setEditing] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const VALID_GST_RATES = [0, 5, 12, 18, 28]
 
@@ -87,6 +89,7 @@ export default function ProductsPage() {
             placeholder="Search products..."
             className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-brand-500" />
           <button onClick={newProduct} className="px-3 py-1.5 bg-brand-700 text-white text-sm rounded hover:bg-brand-500">+ New</button>
+          <button onClick={() => setShowImport(true)} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded">⬆ Import Excel</button>
         </div>
         <div className="flex-1 overflow-y-auto">
           {products.map(p => (
@@ -198,6 +201,7 @@ export default function ProductsPage() {
           {editing && <button onClick={newProduct} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded text-sm">Clear</button>}
         </div>
       </div>
+      {showImport && <ProductImportModal onClose={() => setShowImport(false)} onImportComplete={(c, u) => { reload(); setShowImport(false); alert(`Imported: ${c} added, ${u} updated`) }} />}
     </div>
   )
 }
