@@ -43,10 +43,17 @@ async function loadInitSqlJs(): Promise<(config?: Record<string, unknown>) => Pr
   return initSqlJsLoader
 }
 
+function wasmLocateFile(file: string): string {
+  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+    return new URL(file, window.location.href).href
+  }
+  return `/${file}`
+}
+
 export async function initDB(): Promise<any> {
   if (db) return db
   const initSqlJs = await loadInitSqlJs()
-  const SQL = await initSqlJs({ locateFile: () => '/sql-wasm.wasm' })
+  const SQL = await initSqlJs({ locateFile: wasmLocateFile })
   const saved = await get<Uint8Array>('pos_db')
   db = saved ? new SQL.Database(saved) : new SQL.Database()
   db.run(SCHEMA_SQL)
